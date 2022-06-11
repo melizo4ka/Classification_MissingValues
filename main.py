@@ -7,7 +7,8 @@ from sklearn.metrics import accuracy_score
 
 
 class Node:
-    def __init__(self, feature_index=None, threshold=None, left=None, right=None, info_gain=None, value=None):
+    def __init__(self, feature_index=None, threshold=None, left=None, right=None,
+                 info_gain=None, value=None, probability=1):
         # for decision node
         self.feature_index = feature_index
         self.threshold = threshold
@@ -16,6 +17,7 @@ class Node:
         self.info_gain = info_gain
         # for leaf node
         self.value = value
+        self.probability = probability
 
 
 class DecisionTreeClassifier:
@@ -32,7 +34,6 @@ class DecisionTreeClassifier:
             best_split = self.get_best_split(dataset, num_samples, num_features)
             # check if information gain is positive
             if best_split["info_gain"] > 0:
-                # go through all values of that feature and calculate probability
                 # recur left
                 left_subtree = self.build_tree(best_split["dataset_left"])
                 # recur right
@@ -47,6 +48,8 @@ class DecisionTreeClassifier:
 
     def get_best_split(self, dataset, num_samples, num_features):
         # dictionary to store the best split
+        prob = 1.0
+        global dataset_left, curr_info_gain, dataset_right
         best_split = {}
         max_info_gain = -float("inf")
         # loop over all the features
@@ -55,6 +58,7 @@ class DecisionTreeClassifier:
             possible_thresholds = np.unique(feature_values)
             # loop over all the feature values present in the data
             for threshold in possible_thresholds:
+
                 # check for NaN values
                 if math.isnan(threshold):
                     prob_dict = {}
@@ -62,22 +66,25 @@ class DecisionTreeClassifier:
                     for check_poss_val in possible_thresholds:
                         if not math.isnan(check_poss_val):
                             # iterate over dictionary to check if this value of the attribute was already found
+                            value_found = False
                             for key in prob_dict:
                                 # value already was found so we increase counter by 1
                                 if key == check_poss_val:
                                     prob_dict[key] = prob_dict[key] + 1
+                                    value_found = True
                             # add the value to dictionary with counter 1
-                            prob_dict[check_poss_val] = 1
+                            if not value_found:
+                                prob_dict[check_poss_val] = 1
                     for key in prob_dict:
-                        # calculating probability of that value of threshold
                         value_prob = np.random.uniform()
                         cumulative_prob = 0
-                        for key in prob_dict:
-                            item_prob = (prob_dict[key] / len(possible_thresholds)) * 100  # calculating prob
+                        for keys in prob_dict:
+                            # calculating probability of that value of threshold
+                            item_prob = prob_dict[keys] / len(possible_thresholds)  # calculating prob
                             cumulative_prob = item_prob + cumulative_prob
                             if value_prob <= cumulative_prob:
-                                threshold = key
-
+                                prob = (item_prob * prob)
+                                threshold = keys
                         dataset_left, dataset_right = self.split(dataset, feature_index, threshold)
                         if len(dataset_left) > 0 and len(dataset_right) > 0:
                             y, left_y, right_y = dataset[:, -1], dataset_left[:, -1], dataset_right[:, -1]
@@ -85,7 +92,8 @@ class DecisionTreeClassifier:
                             weight_r = 1 - prob_dict[key]
                             curr_info_gain = self.entropy(y) - \
                                 (weight_l * self.entropy(left_y) + weight_r * self.entropy(right_y))
-                        curr_info_gain = max_info_gain
+                        else:
+                            curr_info_gain = max_info_gain
                     prob_dict.clear()
                 else:
                     # get current split
@@ -103,13 +111,13 @@ class DecisionTreeClassifier:
                     best_split["dataset_left"] = dataset_left
                     best_split["dataset_right"] = dataset_right
                     best_split["info_gain"] = curr_info_gain
+                    best_split["probability"] = prob
                     max_info_gain = curr_info_gain
         return best_split
 
     def split(self, dataset, feature_index, threshold):
         dataset_left = np.array([row for row in dataset if row[feature_index] <= threshold])
         dataset_right = np.array([row for row in dataset if row[feature_index] > threshold])
-
         return dataset_left, dataset_right
 
     def information_gain(self, parent, l_child, r_child):
@@ -137,9 +145,7 @@ class DecisionTreeClassifier:
             print(tree.value)
         else:
             print("X_" + str(tree.feature_index), "<=", tree.threshold, "Info Gain: ", tree.info_gain)
-            print("%sleft:" % indent, end="")
             self.print_tree(tree.left, indent + indent)
-            print("%sright:" % indent, end="")
             self.print_tree(tree.right, indent + indent)
 
     def fit(self, X, Y):
@@ -147,8 +153,8 @@ class DecisionTreeClassifier:
         self.root = self.build_tree(dataset)
 
     def predict(self, X):
-        preditions = [self.make_prediction(x, self.root) for x in X]
-        return preditions
+        predictions = [self.make_prediction(x, self.root) for x in X]
+        return predictions
 
     def make_prediction(self, x, tree):
         if tree.value is not None:
@@ -166,8 +172,8 @@ def testing(X, y):
     classifier.fit(X_train, Y_train)
     Y_pred = classifier.predict(X_test)
     print("Accuracy without missing values:", round(accuracy_score(Y_test, Y_pred), 3))
+
     # random attributes deleted
- 
     prob = array('f', [0, 0.1, 0.2, 0.5])
     for p in prob:
         X_train, X_test, Y_train, Y_test = train_test_split(X, y, random_state=0)
@@ -191,11 +197,10 @@ if __name__ == '__main__':
     Xg = df_g.iloc[:, :-1].values
     yg = df_g.iloc[:, -1].values.reshape(-1, 1)
     testing(Xg, yg)
-
     # Wine - 13 att + target class
     print("WINE dataset")
     df_w = pd.read_csv("https://archive.ics.uci.edu/ml/machine-learning-databases/wine/wine.data",
-                     header = None)
+                       header=None)
     # target in first column
     Xw = df_w.iloc[:, 1:].values
     yw = df_w.iloc[:, 0].values.reshape(-1, 1)
